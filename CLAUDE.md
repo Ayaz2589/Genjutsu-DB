@@ -45,3 +45,10 @@ bun run lint         # ESLint
 - ESM build output with TypeScript declarations
 - Path alias `@/` maps to `src/`
 - Tests in `test/` mirror `src/` structure
+
+## Active Technologies
+- TypeScript 5.x (strict mode) + None (zero runtime dependencies). Dev: Bun test runner, TypeScript compiler. (001-genjutsu-db)
+- Google Sheets v4 REST API (remote). No local storage. (001-genjutsu-db)
+
+## Recent Changes
+- 001-genjutsu-db: Added TypeScript 5.x (strict mode) + None (zero runtime dependencies). Dev: Bun test runner, TypeScript compiler.

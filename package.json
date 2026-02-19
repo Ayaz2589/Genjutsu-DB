@@ -1,0 +1,35 @@
+{
+  "name": "genjutsu-db",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A TypeScript-first Google Sheets database library with zero runtime dependencies",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "bun test",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "google-sheets",
+    "database",
+    "orm",
+    "typescript",
+    "spreadsheet"
+  ],
+  "license": "MIT",
+  "sideEffects": false,
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/bun": "^1.2.0"
+  }
+}
