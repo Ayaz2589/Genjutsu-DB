@@ -190,6 +190,36 @@ describe("getSheetValues", () => {
     }
   });
 
+  test("throws RATE_LIMIT on 429 with Retry-After header parsed to milliseconds", async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(textResponse("Too Many Requests", 429, { "Retry-After": "30" })),
+    );
+
+    try {
+      await getSheetValues(ctx(), "Sheet1!A1:B2");
+      throw new Error("Expected RATE_LIMIT to be thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(GenjutsuError);
+      const gErr = err as GenjutsuError;
+      expect(gErr.kind).toBe("RATE_LIMIT");
+      expect(gErr.retryAfterMs).toBe(30000);
+    }
+  });
+
+  test("throws API_ERROR on 500", async () => {
+    globalThis.fetch = mock(() =>
+      Promise.resolve(textResponse("Internal Server Error", 500)),
+    );
+
+    try {
+      await getSheetValues(ctx(), "Sheet1!A1:B2");
+      throw new Error("Expected API_ERROR to be thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(GenjutsuError);
+      expect((err as GenjutsuError).kind).toBe("API_ERROR");
+    }
+  });
+
   test("throws NETWORK_ERROR on fetch failure", async () => {
     globalThis.fetch = mock(() =>
       Promise.reject(new TypeError("Failed to fetch")),
@@ -278,6 +308,75 @@ describe("401 retry logic", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(GenjutsuError);
       expect((err as GenjutsuError).kind).toBe("AUTH_ERROR");
+    }
+  });
+
+  test("throws NETWORK_ERROR when retry fetch itself fails", async () => {
+    let callCount = 0;
+    globalThis.fetch = mock(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(textResponse("Unauthorized", 401));
+      }
+      // Retry fetch throws network error
+      return Promise.reject(new TypeError("Connection reset"));
+    });
+
+    const tokenProvider = async () => "token-" + callCount;
+
+    try {
+      await getSheetValues(ctx({ auth: tokenProvider }), "Sheet1!A1:A1");
+      throw new Error("Expected NETWORK_ERROR to be thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(GenjutsuError);
+      expect((err as GenjutsuError).kind).toBe("NETWORK_ERROR");
+      expect((err as GenjutsuError).message).toContain("retry");
+    }
+  });
+
+  test("throws RATE_LIMIT when retry returns 429", async () => {
+    let callCount = 0;
+    globalThis.fetch = mock(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(textResponse("Unauthorized", 401));
+      }
+      // Retry gets rate-limited
+      return Promise.resolve(textResponse("Too Many Requests", 429, { "Retry-After": "10" }));
+    });
+
+    const tokenProvider = async () => "token-" + callCount;
+
+    try {
+      await getSheetValues(ctx({ auth: tokenProvider }), "Sheet1!A1:A1");
+      throw new Error("Expected RATE_LIMIT to be thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(GenjutsuError);
+      const gErr = err as GenjutsuError;
+      expect(gErr.kind).toBe("RATE_LIMIT");
+      expect(gErr.retryAfterMs).toBe(10000);
+    }
+  });
+
+  test("throws API_ERROR when retry returns 500", async () => {
+    let callCount = 0;
+    globalThis.fetch = mock(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(textResponse("Unauthorized", 401));
+      }
+      // Retry gets server error
+      return Promise.resolve(textResponse("Internal Server Error", 500));
+    });
+
+    const tokenProvider = async () => "token-" + callCount;
+
+    try {
+      await getSheetValues(ctx({ auth: tokenProvider }), "Sheet1!A1:A1");
+      throw new Error("Expected API_ERROR to be thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(GenjutsuError);
+      expect((err as GenjutsuError).kind).toBe("API_ERROR");
     }
   });
 });
