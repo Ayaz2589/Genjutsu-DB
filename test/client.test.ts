@@ -679,13 +679,15 @@ describe("CRUD operations", () => {
 
       expect(result).toEqual({ id: "1", name: "Alice" });
 
-      // Should have made 2 calls: readAll (GET) + append (POST)
-      expect(calls.length).toBe(2);
-      expect(calls[0].method).toBe("GET");
+      // Calls: readAll (GET for PK check) + header check (GET) + write headers (PUT) + append (POST)
+      expect(calls.length).toBe(4);
+      expect(calls[0].method).toBe("GET"); // PK check
       expect(calls[0].url).toContain("TestSheet");
-      expect(calls[1].method).toBe("POST");
-      expect(calls[1].url).toContain(":append");
-      expect((calls[1].body as { values: unknown[][] }).values).toEqual([
+      expect(calls[1].method).toBe("GET"); // header check
+      expect(calls[2].method).toBe("PUT"); // write headers
+      expect(calls[3].method).toBe("POST"); // append
+      expect(calls[3].url).toContain(":append");
+      expect((calls[3].body as { values: unknown[][] }).values).toEqual([
         ["1", "Alice"],
       ]);
     });
@@ -993,10 +995,13 @@ describe("CRUD operations", () => {
         .repo("tests")
         .append([{ id: "3", name: "Charlie" }]);
 
-      expect(calls.length).toBe(1);
-      expect(calls[0].method).toBe("POST");
-      expect(calls[0].url).toContain(":append");
-      const appendBody = calls[0].body as { values: unknown[][] };
+      // Calls: header check (GET) + write headers (PUT) + append (POST)
+      expect(calls.length).toBe(3);
+      expect(calls[0].method).toBe("GET"); // header check
+      expect(calls[1].method).toBe("PUT"); // write headers
+      expect(calls[2].method).toBe("POST"); // append
+      expect(calls[2].url).toContain(":append");
+      const appendBody = calls[2].body as { values: unknown[][] };
       expect(appendBody.values).toEqual([["3", "Charlie"]]);
     });
   });

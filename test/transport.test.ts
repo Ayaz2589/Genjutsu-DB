@@ -450,7 +450,8 @@ describe("batchGetValues", () => {
     const result = await batchGetValues(ctx(), ["Sheet1!A1:A1"]);
 
     expect(result).toBeInstanceOf(Map);
-    expect(result.size).toBe(0);
+    expect(result.size).toBe(1);
+    expect(result.get("Sheet1!A1:A1")).toEqual([]);
   });
 
   test("appends all ranges as query params", async () => {

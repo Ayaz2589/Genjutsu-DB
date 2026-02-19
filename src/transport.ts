@@ -170,9 +170,11 @@ export async function batchGetValues(
     valueRanges?: { range: string; values?: unknown[][] }[];
   };
   const result = new Map<string, unknown[][]>();
-  for (const vr of data.valueRanges ?? []) {
-    const values = vr.values ?? [];
-    result.set(vr.range, values.map((row) => (Array.isArray(row) ? [...row] : [])));
+  const valueRanges = data.valueRanges ?? [];
+  for (let i = 0; i < ranges.length; i++) {
+    const vr = valueRanges[i];
+    const values = vr?.values ?? [];
+    result.set(ranges[i], values.map((row) => (Array.isArray(row) ? [...row] : [])));
   }
   return result;
 }

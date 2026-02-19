@@ -137,6 +137,13 @@ export function createClient<
             await validateForeignKeys(entity, schema, schemas as Record<string, SheetSchema<any>>, ctx);
           }
 
+          // Ensure headers exist before first append
+          const rawRows = await getSheetValues(ctx, schema.writeRange, "FORMATTED_VALUE");
+          if (rawRows.length === 0) {
+            // Sheet is empty — write headers first
+            await updateSheet(ctx, schema.writeRange, [schema.headers], false);
+          }
+
           // Append single row
           const values = [schema.toRow(entity)];
           await updateSheet(ctx, schema.writeRange, values, true);
@@ -256,6 +263,11 @@ export function createClient<
         return withWriteLock(async () => {
           if (schema.validate) {
             for (const r of records) schema.validate(r);
+          }
+          // Ensure headers exist before first append
+          const rawRows = await getSheetValues(ctx, schema.writeRange, "FORMATTED_VALUE");
+          if (rawRows.length === 0) {
+            await updateSheet(ctx, schema.writeRange, [schema.headers], false);
           }
           const values = records.map((r) => schema.toRow(r));
           await updateSheet(ctx, schema.writeRange, values, true);
