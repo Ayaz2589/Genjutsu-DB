@@ -1008,6 +1008,392 @@ describe("CRUD operations", () => {
 });
 
 // ---------------------------------------------------------------------------
+// update() without primaryKey
+// ---------------------------------------------------------------------------
+
+describe("update() without primaryKey", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("throws VALIDATION_ERROR when schema has no primaryKey", async () => {
+    const NoPkSchema: SheetSchema<{ name: string }> = {
+      sheetName: "NoPk",
+      headers: ["name"],
+      readRange: "NoPk!A2:A",
+      writeRange: "NoPk!A1:A",
+      clearRange: "NoPk!A2:A",
+      parseRow: (row) => (row[0] ? { name: String(row[0]) } : null),
+      toRow: (entity) => [entity.name],
+    };
+
+    globalThis.fetch = mock(() =>
+      Promise.resolve(jsonResponse({ values: [["Alice"]] })),
+    );
+
+    const client = createClient({
+      spreadsheetId: "test-id",
+      auth: "token",
+      schemas: { nopk: NoPkSchema },
+    });
+
+    try {
+      await client.repo("nopk").update("anything", { name: "B" });
+      throw new Error("Expected VALIDATION_ERROR to be thrown");
+    } catch (err) {
+      expect(isGenjutsuError(err)).toBe(true);
+      expect((err as GenjutsuError).kind).toBe("VALIDATION_ERROR");
+      expect((err as GenjutsuError).message).toContain("primary key");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// writeAll() with validate
+// ---------------------------------------------------------------------------
+
+describe("writeAll() with validate callback", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("calls validate on each record before writing", async () => {
+    const validated: string[] = [];
+    const ValidatedSchema: SheetSchema<{ id: string; name: string }> = {
+      ...TestSchema,
+      validate: (entity) => {
+        validated.push(entity.id);
+        if (!entity.name) throw new Error("name required");
+      },
+    };
+
+    globalThis.fetch = mock(() => Promise.resolve(jsonResponse({})));
+
+    const client = createClient({
+      spreadsheetId: "test-id",
+      auth: "token",
+      schemas: { tests: ValidatedSchema },
+    });
+
+    await client.repo("tests").writeAll([
+      { id: "1", name: "Alice" },
+      { id: "2", name: "Bob" },
+    ]);
+
+    expect(validated).toEqual(["1", "2"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// append() edge cases
+// ---------------------------------------------------------------------------
+
+describe("append() edge cases", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("rejects when appendSupported is false", async () => {
+    const NoAppendSchema: SheetSchema<{ id: string; name: string }> = {
+      ...TestSchema,
+      appendSupported: false,
+    };
+
+    const client = createClient({
+      spreadsheetId: "test-id",
+      auth: "token",
+      schemas: { tests: NoAppendSchema },
+    });
+
+    try {
+      await client.repo("tests").append([{ id: "1", name: "A" }]);
+      throw new Error("Expected SCHEMA_ERROR to be thrown");
+    } catch (err) {
+      expect(isGenjutsuError(err)).toBe(true);
+      expect((err as GenjutsuError).kind).toBe("SCHEMA_ERROR");
+      expect((err as GenjutsuError).message).toContain("Append not supported");
+    }
+  });
+
+  test("calls validate on each record before appending", async () => {
+    const validated: string[] = [];
+    const ValidatedSchema: SheetSchema<{ id: string; name: string }> = {
+      ...TestSchema,
+      validate: (entity) => {
+        validated.push(entity.id);
+      },
+    };
+
+    globalThis.fetch = mock(() => Promise.resolve(jsonResponse({})));
+
+    const client = createClient({
+      spreadsheetId: "test-id",
+      auth: "token",
+      schemas: { tests: ValidatedSchema },
+    });
+
+    await client.repo("tests").append([
+      { id: "1", name: "Alice" },
+      { id: "2", name: "Bob" },
+    ]);
+
+    expect(validated).toEqual(["1", "2"]);
+  });
+
+  test("skips header write when sheet already has data", async () => {
+    const calls: { url: string; method: string }[] = [];
+    globalThis.fetch = mock((url: string, init: RequestInit) => {
+      calls.push({ url, method: init.method ?? "GET" });
+
+      // Header check — sheet already has rows
+      if (url.includes("/values/TestSheet") && !init.method) {
+        return Promise.resolve(jsonResponse({ values: [["id", "name"], ["1", "Alice"]] }));
+      }
+
+      return Promise.resolve(jsonResponse({}));
+    });
+
+    const client = createClient({
+      spreadsheetId: "test-id",
+      auth: "token",
+      schemas: { tests: TestSchema },
+    });
+
+    await client.repo("tests").append([{ id: "2", name: "Bob" }]);
+
+    // Should be: header check (GET) + append (POST) — no PUT for headers
+    expect(calls.length).toBe(2);
+    expect(calls[0].method).toBe("GET");
+    expect(calls[1].method).toBe("POST");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyDefaults
+// ---------------------------------------------------------------------------
+
+describe("applyDefaults via create()", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("applies field default values on create", async () => {
+    const SchemaWithDefaults: SheetSchema<{ id: string; name: string; status: string }> = {
+      sheetName: "Defaults",
+      headers: ["id", "name", "status"],
+      readRange: "Defaults!A2:C",
+      writeRange: "Defaults!A1:C",
+      clearRange: "Defaults!A2:C",
+      primaryKey: "id",
+      fields: [
+        { name: "id", type: "string", isPrimaryKey: true },
+        { name: "name", type: "string" },
+        { name: "status", type: "string", defaultValue: "active" },
+      ],
+      parseRow: (row) => {
+        if (!row[0]) return null;
+        return { id: String(row[0]), name: String(row[1] ?? ""), status: String(row[2] ?? "active") };
+      },
+      toRow: (entity) => [entity.id, entity.name, entity.status],
+    };
+
+    const calls: { body: unknown }[] = [];
+    globalThis.fetch = mock((url: string, init: RequestInit) => {
+      if (init.body) {
+        calls.push({ body: JSON.parse(init.body as string) });
+      }
+      // readAll for PK check — empty
+      if (url.includes("/values/Defaults") && !init.method) {
+        return Promise.resolve(jsonResponse({ values: [] }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+
+    const client = createClient({
+      spreadsheetId: "test-id",
+      auth: "token",
+      schemas: { items: SchemaWithDefaults },
+    });
+
+    // Create without providing "status" — should get default "active"
+    const result = await client.repo("items").create({ id: "1", name: "Test" } as any);
+    expect((result as any).status).toBe("active");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyFormatting — additional formatting branches
+// ---------------------------------------------------------------------------
+
+describe("applyFormatting — additional branches", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("handles header horizontalAlignment", async () => {
+    const AlignedSchema: SheetSchema<{ id: string }> = {
+      sheetName: "Aligned",
+      headers: ["id"],
+      readRange: "Aligned!A2:A",
+      writeRange: "Aligned!A1:A",
+      clearRange: "Aligned!A2:A",
+      parseRow: (row) => (row[0] ? { id: String(row[0]) } : null),
+      toRow: (entity) => [entity.id],
+      headerFormatting: { horizontalAlignment: "CENTER" },
+    };
+
+    const calls: { url: string; body: unknown }[] = [];
+    globalThis.fetch = mock((url: string, init: RequestInit) => {
+      calls.push({ url, body: init.body ? JSON.parse(init.body as string) : null });
+      if (url.includes("fields=sheets.properties")) {
+        return Promise.resolve(jsonResponse({
+          sheets: [{ properties: { sheetId: 5, title: "Aligned" } }],
+        }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+
+    const client = createClient({
+      spreadsheetId: "test-id",
+      auth: "token",
+      schemas: { aligned: AlignedSchema },
+    });
+
+    await client.applyFormatting();
+
+    const batchBody = calls[1].body as { requests: any[] };
+    expect(batchBody.requests.length).toBe(1);
+    expect(batchBody.requests[0].repeatCell.cell.userEnteredFormat.horizontalAlignment).toBe("CENTER");
+  });
+
+  test("handles data formatting with bold/fontSize and horizontalAlignment", async () => {
+    const StyledSchema: SheetSchema<{ id: string; val: number }> = {
+      sheetName: "Styled",
+      headers: ["id", "val"],
+      readRange: "Styled!A2:B",
+      writeRange: "Styled!A1:B",
+      clearRange: "Styled!A2:B",
+      parseRow: (row) => (row[0] ? { id: String(row[0]), val: Number(row[1] ?? 0) } : null),
+      toRow: (entity) => [entity.id, entity.val],
+      formatting: [
+        {
+          startCol: 0,
+          endCol: 1,
+          bold: true,
+          fontSize: 14,
+          horizontalAlignment: "RIGHT",
+        },
+      ],
+    };
+
+    const calls: { url: string; body: unknown }[] = [];
+    globalThis.fetch = mock((url: string, init: RequestInit) => {
+      calls.push({ url, body: init.body ? JSON.parse(init.body as string) : null });
+      if (url.includes("fields=sheets.properties")) {
+        return Promise.resolve(jsonResponse({
+          sheets: [{ properties: { sheetId: 7, title: "Styled" } }],
+        }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+
+    const client = createClient({
+      spreadsheetId: "test-id",
+      auth: "token",
+      schemas: { styled: StyledSchema },
+    });
+
+    await client.applyFormatting();
+
+    const batchBody = calls[1].body as { requests: any[] };
+    expect(batchBody.requests.length).toBe(1);
+    const req = batchBody.requests[0].repeatCell;
+    expect(req.cell.userEnteredFormat.textFormat).toEqual({ bold: true, fontSize: 14 });
+    expect(req.cell.userEnteredFormat.horizontalAlignment).toBe("RIGHT");
+    expect(req.fields).toContain("userEnteredFormat.textFormat");
+    expect(req.fields).toContain("userEnteredFormat.horizontalAlignment");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// migrate()
+// ---------------------------------------------------------------------------
+
+describe("migrate()", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("delegates to runMigrations and applies pending migrations", async () => {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    globalThis.fetch = mock((url: string, init: RequestInit) => {
+      calls.push({
+        url,
+        method: init.method ?? "GET",
+        body: init.body ? JSON.parse(init.body as string) : null,
+      });
+
+      // Metadata — no _genjutsu_migrations sheet yet
+      if (url.includes("fields=sheets.properties")) {
+        return Promise.resolve(jsonResponse({
+          sheets: [{ properties: { sheetId: 0, title: "TestSheet" } }],
+        }));
+      }
+
+      // structural batchUpdate to create migrations sheet
+      if (url.includes(":batchUpdate") && init.method === "POST") {
+        const body = init.body ? JSON.parse(init.body as string) : {};
+        if (body.requests?.[0]?.addSheet) {
+          return Promise.resolve(jsonResponse({}));
+        }
+        return Promise.resolve(jsonResponse({}));
+      }
+
+      // Read _genjutsu_migrations for applied versions — empty
+      if (url.includes("_genjutsu_migrations") && !init.method) {
+        return Promise.resolve(jsonResponse({ values: [] }));
+      }
+
+      // Append migration record
+      if (url.includes(":append")) {
+        return Promise.resolve(jsonResponse({}));
+      }
+
+      return Promise.resolve(jsonResponse({}));
+    });
+
+    const client = createClient(validConfig());
+    const migrationRan: number[] = [];
+
+    await client.migrate([
+      {
+        version: 1,
+        name: "add-column",
+        up: async () => { migrationRan.push(1); },
+      },
+    ]);
+
+    expect(migrationRan).toEqual([1]);
+  });
+
+  test("throws PERMISSION_ERROR when client is read-only", async () => {
+    const client = createClient({
+      spreadsheetId: "test-id",
+      apiKey: "read-only-key",
+      schemas: { tests: TestSchema },
+    });
+
+    try {
+      await client.migrate([{ version: 1, name: "test", up: async () => {} }]);
+      throw new Error("Expected PERMISSION_ERROR to be thrown");
+    } catch (err) {
+      expect(isGenjutsuError(err)).toBe(true);
+      expect((err as GenjutsuError).kind).toBe("PERMISSION_ERROR");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Raw SheetSchema<T> without defineModel
 // ---------------------------------------------------------------------------
 
