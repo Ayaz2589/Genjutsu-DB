@@ -1,5 +1,7 @@
 # genjutsu-db
 
+![Sharingan_triple](https://github.com/user-attachments/assets/51599bd6-ec15-4046-aebf-6e7c1e3e603d)
+
 A TypeScript-first Google Sheets database library with zero runtime dependencies.
 
 Use Google Sheets as a structured database with typed models, full CRUD, relations, migrations, and formatting — all from the browser or server with just `fetch`.
