@@ -17,7 +17,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "bun test",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "bun test && bun run build"
   },
   "keywords": [
     "google-sheets",
@@ -27,6 +28,18 @@
     "spreadsheet"
   ],
   "license": "MIT",
+  "author": "Ayaz Uddin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ayaz2589/Genjutsu-DB.git"
+  },
+  "homepage": "https://github.com/Ayaz2589/Genjutsu-DB#readme",
+  "bugs": {
+    "url": "https://github.com/Ayaz2589/Genjutsu-DB/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "sideEffects": false,
   "devDependencies": {
     "typescript": "^5.7.0",
