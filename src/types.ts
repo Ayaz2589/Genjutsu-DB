@@ -113,6 +113,15 @@ export interface ClientConfig<S extends Record<string, SheetSchema<any>>> {
 // Client
 // ---------------------------------------------------------------------------
 
+export interface RawRangeApi {
+  readRange(
+    range: string,
+    valueRenderOption?: "FORMATTED_VALUE" | "UNFORMATTED_VALUE",
+  ): Promise<unknown[][]>;
+  writeRange(range: string, values: unknown[][]): Promise<void>;
+  clearRange(range: string): Promise<void>;
+}
+
 export interface GenjutsuClient<S extends Record<string, SheetSchema<any>>> {
   repo<K extends keyof S & string>(key: K): Repository<InferEntity<S[K]>>;
   batchSync(payload: Partial<{ [K in keyof S]: InferEntity<S[K]>[] }>): Promise<void>;
@@ -120,6 +129,7 @@ export interface GenjutsuClient<S extends Record<string, SheetSchema<any>>> {
   applyFormatting(): Promise<void>;
   migrate(migrations: Migration[]): Promise<void>;
   extractSpreadsheetId(urlOrId: string): string | null;
+  raw: RawRangeApi;
 }
 
 // ---------------------------------------------------------------------------
