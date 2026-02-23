@@ -37,6 +37,7 @@ export type {
   Repository,
   ClientConfig,
   GenjutsuClient,
+  RawRangeApi,
   FindOptions,
   ReadOptions,
   WriteOptions,

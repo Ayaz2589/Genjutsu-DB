@@ -49,6 +49,8 @@ bun run lint         # ESLint
 ## Active Technologies
 - TypeScript 5.x (strict mode) + None (zero runtime dependencies). Dev: Bun test runner, TypeScript compiler. (001-genjutsu-db)
 - Google Sheets v4 REST API (remote). No local storage. (001-genjutsu-db)
+- TypeScript 5.x (strict mode) + None (zero runtime deps — Constitution Principle II) (003-raw-range-api)
+- Google Sheets v4 REST API via native `fetch` (003-raw-range-api)
 
 ## Recent Changes
 - 001-genjutsu-db: Added TypeScript 5.x (strict mode) + None (zero runtime dependencies). Dev: Bun test runner, TypeScript compiler.

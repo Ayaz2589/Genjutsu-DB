@@ -451,5 +451,24 @@ export function createClient<
     },
 
     extractSpreadsheetId,
+
+    raw: {
+      readRange(
+        range: string,
+        valueRenderOption?: "FORMATTED_VALUE" | "UNFORMATTED_VALUE",
+      ): Promise<unknown[][]> {
+        return getSheetValues(ctx, range, valueRenderOption);
+      },
+
+      writeRange(range: string, values: unknown[][]): Promise<void> {
+        assertWritable();
+        return withWriteLock(() => updateSheet(ctx, range, values, false));
+      },
+
+      clearRange(range: string): Promise<void> {
+        assertWritable();
+        return withWriteLock(() => clearRange(ctx, range));
+      },
+    },
   } as GenjutsuClient<S>;
 }
