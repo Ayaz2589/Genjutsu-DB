@@ -14,6 +14,7 @@ Use Google Sheets as a structured database with typed models, full CRUD, relatio
 - **Migrations** — Versioned schema changes tracked in a `_genjutsu_migrations` sheet
 - **Formatting** — Header styles, number formats, alignment rules
 - **Token provider** — Supports static tokens or async refresh functions with automatic 401 retry
+- **Raw range access** — `db.raw.readRange()`, `writeRange()`, `clearRange()` for non-model sheets
 - **Write mutex** — Serializes concurrent writes to prevent interleaved API calls
 - **Read-only mode** — Use `apiKey` for public sheets (writes are blocked at the client level)
 - **Zero dependencies** — Pure `fetch`-based, works in any JS runtime (browser, Node, Bun, Deno)
@@ -273,6 +274,36 @@ const sheetId = extractSpreadsheetId("https://docs.google.com/spreadsheets/d/abc
 const { spreadsheetId, spreadsheetUrl } = await createSpreadsheet("Title", token);
 ```
 
+### Raw Range Access
+
+For sheets that don't fit a model (data blobs, summary tabs, etc.), use `db.raw` to read, write, and clear arbitrary ranges. Raw writes participate in the write mutex, so they're safe to use alongside model operations.
+
+```typescript
+// Read raw cell values
+const rows = await db.raw.readRange("Summary!A1:D10");
+// rows: unknown[][] — e.g. [["Total", 1500], ["Average", 375]]
+
+// Read with unformatted values (numbers instead of formatted strings)
+const unformatted = await db.raw.readRange("Summary!A1:D10", "UNFORMATTED_VALUE");
+
+// Write raw values (overwrites the range)
+await db.raw.writeRange("Summary!A1:B2", [
+  ["Total Expenses", 1500],
+  ["Total Income", 3200],
+]);
+
+// Clear a range
+await db.raw.clearRange("Summary!A1:D10");
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `readRange(range, valueRenderOption?)` | `Promise<unknown[][]>` | Read cell values from a range |
+| `writeRange(range, values)` | `Promise<void>` | Overwrite a range with values |
+| `clearRange(range)` | `Promise<void>` | Clear all values in a range |
+
+> `readRange` works on both read-write and read-only clients. `writeRange` and `clearRange` throw `PERMISSION_ERROR` on read-only (`apiKey`) clients.
+
 ### Raw Schemas
 
 For full control, skip `defineModel()` and provide a raw `SheetSchema<T>`:
@@ -336,7 +367,7 @@ GOOGLE_TOKEN="your-token" SHEET_ID="spreadsheet-id" bun run demo.ts
 
 ```bash
 bun install       # Install dependencies
-bun test          # Run tests (264 tests)
+bun test          # Run tests (277 tests)
 bun test --coverage  # Coverage report (99.7% lines, 100% functions)
 bun run build     # TypeScript build to dist/
 bun run lint      # Type check
