@@ -13,6 +13,7 @@ Use Google Sheets as a structured database with typed models, full CRUD, relatio
 - **Relations** — Foreign key validation on write + eager loading via `include`
 - **Migrations** — Versioned schema changes tracked in a `_genjutsu_migrations` sheet
 - **Formatting** — Header styles, number formats, alignment rules
+- **Drive workspace** — Automatic folder/sheet creation in Google Drive with `appProperties`-based isolation
 - **Token provider** — Supports static tokens or async refresh functions with automatic 401 retry
 - **Raw range access** — `db.raw.readRange()`, `writeRange()`, `clearRange()` for non-model sheets
 - **Write mutex** — Serializes concurrent writes to prevent interleaved API calls
@@ -73,6 +74,173 @@ const adults = await db.repo("contacts").findMany((c) => (c.age ?? 0) >= 18);
 const updated = await db.repo("contacts").update(alice.id, { age: 31 });
 await db.repo("contacts").delete(alice.id);
 ```
+
+## Drive Workspace
+
+Most apps need a dedicated folder and spreadsheet in each user's Google Drive. The workspace API handles this automatically — finding or creating an app-specific folder and spreadsheet using Google Drive's `appProperties` metadata, which is private to your OAuth client ID and invisible to the user.
+
+### Why `appProperties`?
+
+Google Drive doesn't enforce unique folder names. A user might already have a folder called "Budget" for personal use. If genjutsu-db searched by name, it could collide with that folder. `appProperties` solves this:
+
+- **Private per OAuth client ID** — other apps (and even other genjutsu-db apps with different OAuth clients) cannot see your metadata
+- **Survives renames** — if the user renames "Budget" to "My Finances", the library still finds it
+- **Query-able** — `appProperties has { key='genjutsuApp' and value='budget' }` returns only your files
+- **Invisible in Drive UI** — the user sees a normal folder, not developer naming conventions
+
+### `resolveWorkspace(config)`
+
+Find or create an app-specific folder and spreadsheet in one call:
+
+```typescript
+import { resolveWorkspace, createClient, defineModel, field } from "genjutsu-db";
+
+const Task = defineModel("Tasks", {
+  id: field.string().primaryKey(),
+  title: field.string(),
+  done: field.boolean().default(false),
+});
+
+// Finds or creates a "Task Tracker" folder with a "Tasks DB" spreadsheet
+const workspace = await resolveWorkspace({
+  appId: "task-tracker",              // unique ID stored in appProperties
+  folderName: "Task Tracker",         // what the user sees in Drive (defaults to appId)
+  defaultSpreadsheetName: "Tasks DB", // created on first run
+  auth: getAccessToken,               // OAuth token or async provider
+});
+
+// workspace.folderId       — Google Drive folder ID
+// workspace.spreadsheetId  — primary spreadsheet ID (most recently modified)
+// workspace.spreadsheets   — all spreadsheets in the folder [{id, name}, ...]
+// workspace.created        — true if folder and/or spreadsheet were created
+
+const db = createClient({
+  spreadsheetId: workspace.spreadsheetId,
+  auth: getAccessToken,
+  schemas: { tasks: Task },
+});
+```
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `appId` | `string` | Yes | — | Unique app identifier, stored in `appProperties.genjutsuApp` |
+| `folderName` | `string` | No | `appId` | Human-readable folder name shown in Google Drive |
+| `defaultSpreadsheetName` | `string` | Yes | — | Name for the spreadsheet created on first run |
+| `auth` | `string \| () => Promise<string>` | Yes | — | OAuth token or async provider (API keys not supported) |
+
+**How it works:**
+
+1. Queries Drive for folders with `appProperties.genjutsuApp === appId` (ordered by most recently modified)
+2. If no folder found → creates one with `appProperties: { genjutsuApp, genjutsuType: "appFolder" }`
+3. Lists spreadsheets in the folder (excludes trashed)
+4. If no spreadsheets → creates one with `appProperties: { genjutsuApp, genjutsuType: "spreadsheet" }` directly in the folder via `drive.files.create` with `parents: [folderId]`
+5. Returns the folder ID, all spreadsheets, and the primary (most recently modified) spreadsheet ID
+
+**What the user sees in Drive:**
+
+```
+My Drive/
+  Task Tracker/          ← normal folder (appProperties are invisible)
+    Tasks DB.gsheet      ← normal spreadsheet
+```
+
+### `createManagedClient(config)`
+
+Combines `resolveWorkspace()` + `createClient()` into a single call:
+
+```typescript
+import { createManagedClient, defineModel, field } from "genjutsu-db";
+
+const Task = defineModel("Tasks", {
+  id: field.string().primaryKey(),
+  title: field.string(),
+  done: field.boolean().default(false),
+});
+
+const { client, workspace } = await createManagedClient({
+  appId: "task-tracker",
+  folderName: "Task Tracker",
+  defaultSpreadsheetName: "Tasks DB",
+  auth: getAccessToken,
+  schemas: { tasks: Task },
+});
+
+// client is a fully configured GenjutsuClient
+await client.ensureSchema();
+await client.repo("tasks").create({ id: "1", title: "Ship it" });
+
+// workspace has the resolved Drive metadata
+console.log(workspace.spreadsheetId, workspace.created);
+```
+
+### Low-Level Drive Functions
+
+For custom workspace flows (multi-spreadsheet selection, manual folder management):
+
+```typescript
+import {
+  findAppFolder,
+  createAppFolder,
+  listSpreadsheetsInFolder,
+  createSpreadsheetInFolder,
+} from "genjutsu-db";
+
+const ctx = { auth: getAccessToken };
+
+// Find existing folder by appProperties
+let folder = await findAppFolder(ctx, "my-app");
+// → { id: string, name: string } | null
+
+// Create folder if not found
+if (!folder) {
+  folder = await createAppFolder(ctx, "my-app", "My App Data");
+  // → { id: string, name: string }
+  // Created with appProperties: { genjutsuApp: "my-app", genjutsuType: "appFolder" }
+}
+
+// List all spreadsheets in folder (ordered by most recently modified)
+const sheets = await listSpreadsheetsInFolder(ctx, folder.id);
+// → Array<{ id: string, name: string }>
+
+// Create a new spreadsheet in the folder
+const newSheet = await createSpreadsheetInFolder(ctx, folder.id, "January 2026", "my-app");
+// → { id: string, name: string }
+// Created with parents: [folderId] and appProperties: { genjutsuApp: "my-app", genjutsuType: "spreadsheet" }
+```
+
+| Function | Parameters | Returns | Description |
+|----------|-----------|---------|-------------|
+| `findAppFolder(ctx, appId)` | `DriveContext`, `string` | `Promise<{id, name} \| null>` | Find folder by `appProperties` query |
+| `createAppFolder(ctx, appId, folderName)` | `DriveContext`, `string`, `string` | `Promise<{id, name}>` | Create tagged folder |
+| `listSpreadsheetsInFolder(ctx, folderId)` | `DriveContext`, `string` | `Promise<{id, name}[]>` | List spreadsheets in folder |
+| `createSpreadsheetInFolder(ctx, folderId, title, appId)` | `DriveContext`, `string`, `string`, `string` | `Promise<{id, name}>` | Create tagged spreadsheet in folder |
+
+All Drive functions use the same auth pattern (static token or async provider), 401 retry, and typed error handling as Sheets operations. Errors are mapped to `GenjutsuError` kinds: `AUTH_ERROR` (401), `PERMISSION_ERROR` (403), `RATE_LIMIT` (429), `NETWORK_ERROR` (fetch failure), `DRIVE_ERROR` (other Drive API errors).
+
+### OAuth Scope
+
+The workspace API requires the `drive.file` scope:
+
+```
+https://www.googleapis.com/auth/drive.file
+```
+
+This is the **least-privilege** Drive scope — it only grants access to files your app created or the user opened with your app. It does **not** grant access to the user's entire Google Drive.
+
+> If your app also uses `createClient()` with model CRUD, you'll need both `drive.file` and `spreadsheets` scopes.
+
+### Edge Cases
+
+| Scenario | Behavior |
+|----------|----------|
+| First-time user | Creates folder + spreadsheet. `created: true`. |
+| Returning user | Finds existing folder + sheet. `created: false`. |
+| Folder trashed by user | Query includes `trashed=false` — folder not found, new one created. |
+| Spreadsheet trashed | Listing excludes trashed — new default spreadsheet created. |
+| User renames folder | Still found by `appProperties`, not by name. |
+| User has personal folder with same name | No collision — query filters by `appProperties` metadata. |
+| Multiple folders with same `appId` | Most recently modified is selected. |
+| Insufficient OAuth scope | 403 → `PERMISSION_ERROR` with descriptive message. |
 
 ## API
 
@@ -239,6 +407,7 @@ try {
       case "SCHEMA_ERROR":      // bad config, missing sheet
       case "MIGRATION_ERROR":   // err.migrationVersion, err.migrationName
       case "API_ERROR":         // other Google Sheets API errors
+      case "DRIVE_ERROR":       // Google Drive API errors (folder/file operations)
     }
   }
 }
@@ -344,7 +513,16 @@ const db = createClient({
 
 ## Authentication
 
-genjutsu-db requires a Google OAuth2 token with the `https://www.googleapis.com/auth/spreadsheets` scope. The library does not handle OAuth flows — you provide the token.
+genjutsu-db requires a Google OAuth2 token. The library does not handle OAuth flows — you provide the token.
+
+**Required scopes:**
+
+| Feature | Scope |
+|---------|-------|
+| Model CRUD, raw range, migrations | `https://www.googleapis.com/auth/spreadsheets` |
+| Drive workspace (`resolveWorkspace`, Drive functions) | `https://www.googleapis.com/auth/drive.file` |
+
+> `drive.file` is the least-privilege Drive scope — it only accesses files your app created. If your app uses both model CRUD and Drive workspace, include both scopes.
 
 **Common approaches:**
 - **Browser apps** — Use Google Identity Services (GIS) or `@react-oauth/google`
@@ -367,7 +545,7 @@ GOOGLE_TOKEN="your-token" SHEET_ID="spreadsheet-id" bun run demo.ts
 
 ```bash
 bun install       # Install dependencies
-bun test          # Run tests (277 tests)
+bun test          # Run tests (348 tests)
 bun test --coverage  # Coverage report (99.7% lines, 100% functions)
 bun run build     # TypeScript build to dist/
 bun run lint      # Type check
@@ -381,8 +559,12 @@ src/
   model.ts       — defineModel(), field builders, parseRow/toRow/validate generation
   relations.ts   — FK validation (validateForeignKeys) + eager loading (loadRelated)
   migrations.ts  — Migration runner + MigrationContext structural operations
+  http.ts        — Shared HTTP infrastructure (auth, 401 retry, error wrapping)
   transport.ts   — Google Sheets v4 REST wrappers (GET/PUT/POST/batchGet/batchUpdate)
-  errors.ts      — GenjutsuError class with 8 typed error kinds
+  drive.ts       — Google Drive v3 REST wrappers (folder/spreadsheet CRUD with appProperties)
+  workspace.ts   — resolveWorkspace() orchestrator (find or create folder + spreadsheet)
+  managed.ts     — createManagedClient() convenience (workspace + client in one call)
+  errors.ts      — GenjutsuError class with 9 typed error kinds
   types.ts       — All TypeScript interfaces and type definitions
   utils.ts       — generateId, date parsing, header validation helpers
   index.ts       — Public API barrel export
