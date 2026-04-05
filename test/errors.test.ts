@@ -12,6 +12,7 @@ import {
   schemaError,
   migrationError,
   apiError,
+  driveError,
   type GenjutsuErrorKind,
   type ValidationIssue,
 } from "../src/errors";
@@ -29,6 +30,7 @@ describe("GenjutsuError creation", () => {
     "SCHEMA_ERROR",
     "MIGRATION_ERROR",
     "API_ERROR",
+    "DRIVE_ERROR",
   ];
 
   for (const kind of kinds) {
@@ -424,6 +426,26 @@ describe("apiError()", () => {
 
   test("cause is undefined when omitted", () => {
     const err = apiError("bad response");
+    expect(err.cause).toBeUndefined();
+  });
+});
+
+describe("driveError()", () => {
+  test("returns GenjutsuError with DRIVE_ERROR kind", () => {
+    const err = driveError("folder creation failed");
+    expect(err).toBeInstanceOf(GenjutsuError);
+    expect(err.kind).toBe("DRIVE_ERROR");
+    expect(err.message).toBe("folder creation failed");
+  });
+
+  test("includes cause when provided", () => {
+    const cause = new Error("Drive API 500");
+    const err = driveError("drive request failed", cause);
+    expect(err.cause).toBe(cause);
+  });
+
+  test("cause is undefined when omitted", () => {
+    const err = driveError("not found");
     expect(err.cause).toBeUndefined();
   });
 });

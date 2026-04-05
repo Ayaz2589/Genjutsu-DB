@@ -9,6 +9,19 @@ export { createClient } from "./client";
 // Transport
 export { extractSpreadsheetId, createSpreadsheet } from "./transport";
 
+// Shared HTTP
+export type { HttpContext } from "./http";
+
+// Drive workspace
+export {
+  findAppFolder,
+  createAppFolder,
+  listSpreadsheetsInFolder,
+  createSpreadsheetInFolder,
+} from "./drive";
+export { resolveWorkspace } from "./workspace";
+export { createManagedClient } from "./managed";
+
 // Error types
 export {
   GenjutsuError,
@@ -23,6 +36,7 @@ export {
   schemaError,
   migrationError,
   apiError,
+  driveError,
 } from "./errors";
 export type { GenjutsuErrorKind, ValidationIssue } from "./errors";
 
@@ -43,6 +57,10 @@ export type {
   WriteOptions,
   Migration,
   MigrationContext,
+  DriveContext,
+  WorkspaceConfig,
+  ResolvedWorkspace,
+  ManagedClientConfig,
 } from "./types";
 
 // Model definition
