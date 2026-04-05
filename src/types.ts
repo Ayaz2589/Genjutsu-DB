@@ -149,3 +149,45 @@ export interface MigrationContext {
   renameColumn(sheet: string, columnIndex: number, newName: string): Promise<void>;
   renameSheet(oldName: string, newName: string): Promise<void>;
 }
+
+// ---------------------------------------------------------------------------
+// Drive Workspace
+// ---------------------------------------------------------------------------
+
+export interface DriveContext {
+  auth: string | (() => Promise<string>);
+}
+
+export interface DriveFile {
+  id: string;
+  name: string;
+  modifiedTime?: string;
+}
+
+export interface WorkspaceConfig {
+  /** Unique identifier for this app, stored in appProperties.genjutsuApp */
+  appId: string;
+  /** Human-readable folder name shown in Google Drive. Defaults to appId. */
+  folderName?: string;
+  /** Name for the default spreadsheet created on first run. */
+  defaultSpreadsheetName: string;
+  /** OAuth token or async provider. Required — Drive API needs user auth. */
+  auth: string | (() => Promise<string>);
+}
+
+export interface ResolvedWorkspace {
+  /** Google Drive folder ID. */
+  folderId: string;
+  /** Primary spreadsheet ID (most recently modified). */
+  spreadsheetId: string;
+  /** All spreadsheets in the workspace folder. */
+  spreadsheets: Array<{ id: string; name: string }>;
+  /** True if folder and/or spreadsheet were created during this call. */
+  created: boolean;
+}
+
+export interface ManagedClientConfig<
+  S extends Record<string, SheetSchema<any>>,
+> extends WorkspaceConfig {
+  schemas: S;
+}

@@ -10,7 +10,8 @@ export type GenjutsuErrorKind =
   | "VALIDATION_ERROR"
   | "SCHEMA_ERROR"
   | "MIGRATION_ERROR"
-  | "API_ERROR";
+  | "API_ERROR"
+  | "DRIVE_ERROR";
 
 export interface ValidationIssue {
   field: string;
@@ -106,4 +107,8 @@ export function migrationError(
 
 export function apiError(message: string, cause?: unknown): GenjutsuError {
   return new GenjutsuError("API_ERROR", message, { cause });
+}
+
+export function driveError(message: string, cause?: unknown): GenjutsuError {
+  return new GenjutsuError("DRIVE_ERROR", message, { cause });
 }
